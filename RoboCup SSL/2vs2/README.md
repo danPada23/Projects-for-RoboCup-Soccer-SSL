@@ -34,4 +34,8 @@ Disproportionately increasing the tactic towards *Ultra-Offensive* settings ends
 
 ## Simulation Video
 
-<video src="../assets/2vs2video.mp4" controls="controls" style="max-width: 700px;"></video>
+
+
+https://github.com/user-attachments/assets/61a15b49-da0b-4108-8a03-5c98a0512dee
+
+
