@@ -40,7 +40,9 @@ The decision-making core of the robot is encapsulated in the `Planner` class. In
 **Video 1:**
 
 
-https://github.com/user-attachments/assets/e14e1c56-aff6-4454-8ed4-d73e961efa9f
+https://github.com/user-attachments/assets/1ee0933f-d810-49fd-b70a-82b912f6ab6e
+
+
 
 **Video 2:**
 
