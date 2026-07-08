@@ -1,0 +1,198 @@
+function [score_L, score_R, ag_veri_L, ag_rimpalli_L, ag_veri_R, ag_rimpalli_R] = run_headless_match(cervello_L, cervello_R)
+    % ==========================================
+    % MOTORE FISICO HEADLESS (Senza Grafica)
+    % ==========================================
+    
+    % --- PARAMETRI GENERALI E SETUP ---
+    X_max = 0.8; Y_max = 0.6; Ts = 0.01;
+    A = 0.025; b = 0.03; d = A * (sqrt(3)/2)+0.01; 
+    r_p = 0.02; m_p = 0.0027;
+    
+    % 10 minuti di tempo simulato per partita (nessun intervallo, partita secca)
+    durata_partita = ; 
+    tempo_simulato = 0;
+    
+    % --- PARAMETRI ROBOT E CONTROLLO ---
+    m_r = 1.5; I_r = 0.5 * m_r * A^2; e = 0.8; 
+    control_mode = 'PID'; gains = [4.0, 0.5]; 
+    
+    % --- SETUP SOGLIE FSM E DISTANZE ---
+    N_pallini = 3.5; step_pallini = 0.05;
+    dist_base = Y_max/2;     
+    Delta = dist_base - b - d - (N_pallini * step_pallini);
+    R_min = 2 * Delta; R_max = R_min + (2 * Delta); R_mid = (R_max + R_min) / 2; 
+    goal_width = 0.25; goal_depth = r_p + 0.03; 
+    
+    diag_campo = sqrt(X_max^2 + Y_max^2);
+    score_L = 0; score_R = 0;
+    
+    % --- NUOVO: Contatori Forensi Separati ---
+    ag_veri_L = 0; ag_rimpalli_L = 0; 
+    ag_veri_R = 0; ag_rimpalli_R = 0;
+    
+    % --- INIZIALIZZAZIONE AMBIENTE ---
+    campo = Field([0, X_max], [0, Y_max], [d, X_max - d], [d, Y_max - d], goal_width, goal_depth);
+    
+    % Spawn Posizioni Iniziali
+    bot_L_start_x = campo.safe_x(1); bot_R_start_x = campo.safe_x(2);
+    start_y = Y_max / 2;
+    % Palla sempre sulla linea di centrocampo con Y random
+    ball_start_x = X_max / 2; 
+    ball_start_y = campo.safe_y(1) + rand() * (campo.safe_y(2) - campo.safe_y(1));
+    
+    palla = Ball(ball_start_x, ball_start_y, r_p, m_p);
+    bot_left  = Bot(bot_L_start_x, start_y, 0,  b, d, A, m_r, I_r, e, control_mode, gains); 
+    bot_right = Bot(bot_R_start_x, start_y, pi, b, d, A, m_r, I_r, e, control_mode, gains); 
+    
+    planner_left  = Planner(Ts, R_min, R_max, R_mid, Delta, bot_left.x, bot_left.y, 1);
+    planner_right = Planner(Ts, R_min, R_max, R_mid, Delta, bot_right.x, bot_right.y, -1);
+    secondo_tempo_iniziato = false;
+    
+    % ==========================================
+    % --- LOOP PRINCIPALE (IL FULMINE) ---
+    % ==========================================
+    while tempo_simulato < durata_partita
+        tempo_simulato = tempo_simulato + Ts;
+        
+        % --- GESTIONE INTERVALLO (Fine 1° Tempo) ---
+        if tempo_simulato >= 300 && ~secondo_tempo_iniziato
+            secondo_tempo_iniziato = true;
+            
+            % Reset simmetrico delle posizioni
+            bot_left.x = campo.safe_x(1); bot_left.y = Y_max / 2; bot_left.theta = 0;
+            bot_left.v = 0; bot_left.omega = 0; bot_left.err_sum_x = 0; bot_left.err_sum_y = 0;
+            
+            bot_right.x = campo.safe_x(2); bot_right.y = Y_max / 2; bot_right.theta = pi;
+            bot_right.v = 0; bot_right.omega = 0; bot_right.err_sum_x = 0; bot_right.err_sum_y = 0;
+            
+            palla.x = X_max / 2; palla.y = Y_max / 2;
+            palla.vx = 0; palla.vy = 0; palla.theta = 0;
+            
+            % NUOVO: Pulizia memoria palla
+            palla.ultimo_tocco_id = 0; palla.energia_ultimo_tocco = 0;
+            
+            planner_left.reset(); planner_right.reset();
+        end
+        
+        % ------------------------------------------
+        % 1A. DECISIONE BOT SINISTRO
+        % ------------------------------------------
+        if ischar(cervello_L) && strcmp(cervello_L, 'FSM')
+            [u1_L, u2_L] = planner_left.decide_action(bot_left, bot_right, palla, campo, X_max, Y_max, d);
+        else
+            if planner_left.fsm_state == 0
+                pos_L = [bot_left.x, bot_left.y]; pos_R = [bot_right.x, bot_right.y]; pos_P = [palla.x, palla.y];
+                d1 = norm(pos_P - pos_L) / diag_campo;
+                a2 = atan2(sin(atan2(palla.y - bot_left.y, palla.x - bot_left.x) - bot_left.theta), cos(atan2(palla.y - bot_left.y, palla.x - bot_left.x) - bot_left.theta)) / pi;
+                d3 = norm(pos_R - pos_L) / diag_campo;
+                a4 = atan2(sin(atan2(bot_right.y - bot_left.y, bot_right.x - bot_left.x) - bot_left.theta), cos(atan2(bot_right.y - bot_left.y, bot_right.x - bot_left.x) - bot_left.theta)) / pi;
+                d5 = norm([0, Y_max/2] - pos_L) / X_max;
+                d6 = norm([X_max, Y_max/2] - pos_L) / X_max;
+                v7 = (norm(pos_P - pos_R) - norm(pos_P - pos_L)) / diag_campo;
+                
+                act = getAction(cervello_L, {[d1; a2; d3; a4; d5; d6; v7]});
+                switch act{1}
+                    case 1, planner_left.fsm_state = 1; case 2, planner_left.fsm_state = 2;
+                    case 3, planner_left.fsm_state = 4; case 4, planner_left.fsm_state = 3;
+                end
+            end
+            [u1_L, u2_L] = planner_left.decide_action(bot_left, bot_right, palla, campo, X_max, Y_max, d);
+        end
+        
+        % ------------------------------------------
+        % 1B. DECISIONE BOT DESTRO (CON SPECCHIO)
+        % ------------------------------------------
+        if ischar(cervello_R) && strcmp(cervello_R, 'FSM')
+            [u1_R, u2_R] = planner_right.decide_action(bot_right, bot_left, palla, campo, X_max, Y_max, d);
+        else
+            if planner_right.fsm_state == 0
+                pos_R_v = [X_max - bot_right.x, bot_right.y];
+                pos_L_v = [X_max - bot_left.x, bot_left.y];
+                pos_P_v = [X_max - palla.x, palla.y];
+                th_R_v = pi - bot_right.theta;
+                
+                d1_R = norm(pos_P_v - pos_R_v) / diag_campo;
+                a2_R = atan2(sin(atan2(pos_P_v(2) - pos_R_v(2), pos_P_v(1) - pos_R_v(1)) - th_R_v), cos(atan2(pos_P_v(2) - pos_R_v(2), pos_P_v(1) - pos_R_v(1)) - th_R_v)) / pi;
+                d3_R = norm(pos_L_v - pos_R_v) / diag_campo;
+                a4_R = atan2(sin(atan2(pos_L_v(2) - pos_R_v(2), pos_L_v(1) - pos_R_v(1)) - th_R_v), cos(atan2(pos_L_v(2) - pos_R_v(2), pos_L_v(1) - pos_R_v(1)) - th_R_v)) / pi;
+                d5_R = norm([0, Y_max/2] - pos_R_v) / X_max;
+                d6_R = norm([X_max, Y_max/2] - pos_R_v) / X_max;
+                v7_R = (norm(pos_P_v - pos_L_v) - norm(pos_P_v - pos_R_v)) / diag_campo;
+                
+                act_R = getAction(cervello_R, {[d1_R; a2_R; d3_R; a4_R; d5_R; d6_R; v7_R]});
+                switch act_R{1}
+                    case 1, planner_right.fsm_state = 1; case 2, planner_right.fsm_state = 2;
+                    case 3, planner_right.fsm_state = 4; case 4, planner_right.fsm_state = 3;
+                end
+            end
+            [u1_R, u2_R] = planner_right.decide_action(bot_right, bot_left, palla, campo, X_max, Y_max, d);
+        end
+        
+        % ------------------------------------------
+        % 2. CINEMATICA E FISICA
+        % ------------------------------------------
+        bot_left.linearize_and_move(u1_L, u2_L, Ts);
+        bot_right.linearize_and_move(u1_R, u2_R, Ts);
+        campo.resolve_bot_bot_collision(bot_left, bot_right);
+        campo.apply_repulsion(palla, Ts);
+        palla.update_dynamics(Ts);
+        
+        campo.check_bot_walls(bot_left); campo.check_bot_walls(bot_right);
+        
+        % --- NUOVO: Passaggio ID alla risoluzione urti ---
+        campo.resolve_collision(bot_left, palla, planner_left.fsm_state, 1);
+        campo.resolve_collision(bot_right, palla, planner_right.fsm_state, 2);
+        
+        goal_status = campo.check_ball_walls(palla);
+        
+        % ------------------------------------------
+        % 3. GESTIONE GOL E RESET RAPIDO
+        % ------------------------------------------
+        if goal_status > 0
+            if goal_status == 1 % Gol nella porta sinistra
+                score_R = score_R + 1;
+                
+                % Analisi Moviola per Bot Sinistro
+                if palla.ultimo_tocco_id == 1
+                    if palla.energia_ultimo_tocco > 0.3
+                        ag_veri_L = ag_veri_L + 1; % Errore grave
+                    else
+                        ag_rimpalli_L = ag_rimpalli_L + 1; % Sfortuna
+                    end
+                end
+                
+            elseif goal_status == 2 % Gol nella porta destra
+                score_L = score_L + 1;
+                
+                % Analisi Moviola per Bot Destro
+                if palla.ultimo_tocco_id == 2
+                    if palla.energia_ultimo_tocco > 0.3
+                        ag_veri_R = ag_veri_R + 1; % Errore grave
+                    else
+                        ag_rimpalli_R = ag_rimpalli_R + 1; % Sfortuna
+                    end
+                end
+            end
+            
+            % Reset Posizioni
+            bot_left.x = campo.safe_x(1); bot_left.y = Y_max / 2; bot_left.theta = 0;
+            bot_left.v = 0; bot_left.omega = 0; bot_left.err_sum_x = 0; bot_left.err_sum_y = 0;
+            
+            bot_right.x = campo.safe_x(2); bot_right.y = Y_max / 2; bot_right.theta = pi;
+            bot_right.v = 0; bot_right.omega = 0; bot_right.err_sum_x = 0; bot_right.err_sum_y = 0;
+            
+            palla.x = X_max / 2;
+            palla.y = campo.safe_y(1) + rand() * (campo.safe_y(2) - campo.safe_y(1));
+            palla.vx = 0; palla.vy = 0; palla.theta = 0;
+            
+            % NUOVO: Pulizia memoria palla
+            palla.ultimo_tocco_id = 0; palla.energia_ultimo_tocco = 0;
+            
+            planner_left.fsm_state = 0; planner_left.prev_state = -1;
+            planner_left.calcolo_effettuato = false; planner_left.P_A = []; planner_left.P_Beyond = [];
+            
+            planner_right.fsm_state = 0; planner_right.prev_state = -1;
+            planner_right.calcolo_effettuato = false; planner_right.P_A = []; planner_right.P_Beyond = [];
+        end
+    end
+end
