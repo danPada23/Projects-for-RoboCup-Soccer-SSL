@@ -95,8 +95,7 @@ campo = Field(lim_x, lim_y, safe_x, safe_y, goal_width, goal_depth);
 % ==========================================
 % --- SPAWN INIZIALE RANDOMIZZATO ---
 % ==========================================
-% bot_L_start_x = campo.safe_x(1);
-bot_L_start_x = X_max/2;
+bot_L_start_x = campo.safe_x(1);
 bot_R_start_x = campo.safe_x(2);
 start_y = Y_max / 2;
 
@@ -234,7 +233,7 @@ while ishandle(Scenario)
     secondi = floor(mod(tempo_simulato, 60));
     
     % Titolo aggiornato con Cronometro e Tempo Corrente
-    title(sprintf('Partita 1vs1 | Tempo %d - %02d:%02d | Punteggio: Lazzie %d - %d Amaggica', ...
+    title(sprintf('Match 1vs1 | Tempo %d - %02d:%02d | Score: Team Blue %d - %d Team Red', ...
         tempo_corrente, minuti, secondi, score_L, score_R), 'FontSize', 14, 'FontWeight', 'bold');
     
     % --- R_MIN E CERCHI BOT SINISTRO (CIANO) ---
